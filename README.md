@@ -1,3 +1,16 @@
+调试方法
+
+- `./configure && make build`
+- 执行完之后CMakeLists.txt有效，使用CLion打开即可开始调试。注意配置好target scheme的Configuration。其中Program arguments为`--verbose --boot ./a6osx/boot/a6osx/petite.boot --boot ./a6osx/boot/a6osx/scheme.boot`，Working directory为/Users/tintin/Projects/ChezScheme。
+- 根目录下的`key.h`为主要函数声明，用于方便快速跳转和主要流程说明。
+
+Runtime 代码优化项：
+- 尽可能减少宏的使用
+
+原始README：
+
+------
+
 [![Build Status](https://travis-ci.org/cisco/ChezScheme.svg?branch=master)](https://travis-ci.org/cisco/ChezScheme)
 
 Chez Scheme is both a programming language and an implementation

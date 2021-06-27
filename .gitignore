@@ -49,3 +49,6 @@
 /release_notes/*.htoc
 /release_notes/*.log
 /release_notes/release_notes.pdf
+
+.idea
+cmake-build-debug

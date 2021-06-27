@@ -107,6 +107,7 @@ wchar_t *S_malloc_wide_pathname(const char *inpath) {
 }
 #endif
 
+/// 绝对路径（/开头）和相对路径（./或者../开头）都认为是fixed的，跟设置的boot file寻找目录无关
 IBOOL S_fixedpathp(inpath) const char *inpath; {
   char c; IBOOL res; char *path;
 

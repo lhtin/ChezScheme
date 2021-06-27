@@ -44,7 +44,7 @@ static void main_init PROTO((void));
 static void idiot_checks PROTO((void));
 static INT run_script PROTO((const char *who, const char *scriptfile, INT argc, const char *argv[], IBOOL programp));
 
-extern void scheme_include(void);
+void scheme_include(void);
   
 static void main_init() {
     ptr tc = get_thread_context();
@@ -584,6 +584,7 @@ static IBOOL find_boot(name, ext, fd, errorp) const char *name, *ext; int fd; IB
   char *expandedpath;
 
   if ((fd != -1) || S_fixedpathp(name)) {
+    /// 使用确定的路径寻找boot文件
     if (strlen(name) >= PATH_MAX) {
       fprintf(stderr, "boot-file path is too long %s\n", name);
       S_abnormal_exit();
@@ -600,6 +601,7 @@ static IBOOL find_boot(name, ext, fd, errorp) const char *name, *ext; int fd; IB
     if (fd == -1) {
       if (errorp) {
         fprintf(stderr, "cannot open boot file %s\n", path);
+        fprintf(stderr, "%s", strerror(errno));
         S_abnormal_exit();
       } else {
         if (verbose) fprintf(stderr, "trying %s...cannot open\n", path);
@@ -805,6 +807,13 @@ static char get_u8(INT fd) {
   return buf[0];
 }
 
+/// 一个个字节取出来组成一个长整型数字
+/// 其中每个字节有效位为7，最后一位表示是否还有下一位
+/// e.g.: 假如一个数字包含3个字节（即最后一个字节的最后一位为0）
+///   则计算出来的值为：
+///     (buf[0] >> 1 << 7 << 7) +
+///     (buf[1] >> 1 << 7) +
+///     (buf[2] >> 1)
 static uptr get_uptr(INT fd, uptr *pn) {
   uptr n, m; int c; octet k;
 
@@ -931,11 +940,11 @@ const char *Skernel_version(void) {
   return VERSION;
 }
 
-extern void Sset_verbose(v) INT v; {
+void Sset_verbose(v) INT v; {
   verbose = v;
 }
 
-extern void Sretain_static_relocation(void) {
+void Sretain_static_relocation(void) {
   S_G.retain_static_relocation = 1;
 }
 
@@ -968,7 +977,7 @@ static void default_abnormal_exit(void) {
   exit(1);
 }
 
-extern void Sscheme_init(abnormal_exit) void (*abnormal_exit) PROTO((void)); {
+void Sscheme_init(abnormal_exit) void (*abnormal_exit) PROTO((void)); {
   S_abnormal_exit_proc = abnormal_exit ? abnormal_exit : default_abnormal_exit;
   S_errors_to_console = 1;
 
@@ -1044,22 +1053,22 @@ static void check_boot_file_state(const char *who) {
   }
 }
 
-extern void Sregister_boot_file(name) const char *name; {
+void Sregister_boot_file(name) const char *name; {
   check_boot_file_state("Sregister_boot_file");
   find_boot(name, "", -1, 1);
 }
 
-extern void Sregister_boot_file_fd(name, fd) const char *name; int fd; {
+void Sregister_boot_file_fd(name, fd) const char *name; int fd; {
   check_boot_file_state("Sregister_boot_file_fd");
   find_boot(name, "", fd, 1);
 }
 
-extern void Sregister_heap_file(UNUSED const char *path) {
+void Sregister_heap_file(UNUSED const char *path) {
   fprintf(stderr, "Sregister_heap_file: saved heap files are not presently supported\n");
   S_abnormal_exit();
 }
 
-extern void Sbuild_heap(kernel, custom_init) const char *kernel; void (*custom_init) PROTO((void)); {
+void Sbuild_heap(kernel, custom_init) const char *kernel; void (*custom_init) PROTO((void)); {
   ptr tc = Svoid; /* initialize to make gcc happy */
   ptr p;
 
@@ -1158,14 +1167,14 @@ extern void Sbuild_heap(kernel, custom_init) const char *kernel; void (*custom_i
   S_errors_to_console = 0;
 }
 
-extern void Senable_expeditor(history_file) const char *history_file; {
+void Senable_expeditor(history_file) const char *history_file; {
   Scall1(S_symbol_value(Sstring_to_symbol("$enable-expeditor")), Strue);
   if (history_file != (const char *)0)
     Scall1(S_symbol_value(Sstring_to_symbol("$expeditor-history-file")),
            Sstring_utf8(history_file, -1));
 }
 
-extern INT Sscheme_start(argc, argv) INT argc; const char *argv[]; {
+INT Sscheme_start(argc, argv) INT argc; const char *argv[]; {
   ptr tc = get_thread_context();
   ptr arglist, p; INT i;
 
@@ -1235,20 +1244,20 @@ static INT run_script(const char *who, const char *scriptfile, INT argc, const c
   return p == Svoid ? 0 : 1;
 }
 
-extern INT Sscheme_script(scriptfile, argc, argv) const char *scriptfile; INT argc; const char *argv[]; {
+INT Sscheme_script(scriptfile, argc, argv) const char *scriptfile; INT argc; const char *argv[]; {
   return run_script("Sscheme_script", scriptfile, argc, argv, 0);
 }
 
-extern INT Sscheme_program(programfile, argc, argv) const char *programfile; INT argc; const char *argv[]; {
+INT Sscheme_program(programfile, argc, argv) const char *programfile; INT argc; const char *argv[]; {
   return run_script("Sscheme_program", programfile, argc, argv, 1);
 }
 
-extern void Ssave_heap(UNUSED const char *path, UNUSED INT level) {
+void Ssave_heap(UNUSED const char *path, UNUSED INT level) {
   fprintf(stderr, "Ssave_heap: saved heap files are not presently supported\n");
   S_abnormal_exit();
 }
 
-extern void Sscheme_deinit() {
+void Sscheme_deinit() {
   ptr p, tc = get_thread_context();
 
   switch (current_state) {
