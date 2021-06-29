@@ -26,4 +26,4 @@ target_link_libraries(scheme
         # shared library 等价于给连接器传 -liconv -lm -lncurses
         iconv m ncurses)
 
-add_library(key-functions OBJECT tin-note/key.c)
+add_library(key-functions OBJECT tin-note/key.h)
