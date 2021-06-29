@@ -7,6 +7,19 @@
 Runtime 代码优化项：
 - 尽可能减少宏的使用
 
+s目录编译：
+```
+- cmacros.ss
+  - priminfo.ss
+    - primvars.ss
+    - env.ss
+    - setup.ss
+- nanopass framework
+- petite.boot
+- scheme.boot
+```
+
+
 原始README：
 
 ------
