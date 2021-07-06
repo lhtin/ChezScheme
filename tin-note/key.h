@@ -3,7 +3,9 @@
 #include "../a6osx/c/main.c"
 
 int main(int argc, const char *argv[]);
+  const char *Skernel_version(void);
   void Sscheme_init(void (*abnormal_exit) PROTO((void)));
+  void Sregister_boot_file(const char *name);
   /* must call Sbuild_heap after registering boot and heap files.
   * Sbuild_heap() completes the initialization of the Scheme system
   * and loads the boot or heap files.  If no boot or heap files have

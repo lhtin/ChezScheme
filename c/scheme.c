@@ -584,7 +584,7 @@ static IBOOL find_boot(name, ext, fd, errorp) const char *name, *ext; int fd; IB
   char *expandedpath;
 
   if ((fd != -1) || S_fixedpathp(name)) {
-    /// 使用确定的路径寻找boot文件
+    /// 使用可确定的路径寻找boot文件
     if (strlen(name) >= PATH_MAX) {
       fprintf(stderr, "boot-file path is too long %s\n", name);
       S_abnormal_exit();
