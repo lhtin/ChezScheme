@@ -9,7 +9,12 @@
 
 extern void uart_putc(char c);
 extern char uart_getc(void);
-extern int uart_getc_nonblock(void);
+extern int  uart_getc_nonblock(void);
+extern void uart_puts(const char *s);
+
+/* Timer callback support — defined in timer.c */
+extern int  timer_has_pending(void);
+extern void timer_run_pending(void);
 extern void *memset(void *, int, size_t);
 extern int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
 
@@ -217,7 +222,37 @@ static void collect_line(void) {
     hist_saved_len = 0;
 
     while (line_len < (int)sizeof(line_buf) - 4) {
-        char c = uart_getc();
+        /* Non-blocking check for input, run timer callbacks while waiting */
+        int ic = uart_getc_nonblock();
+        if (ic < 0) {
+            /* No input available — check for pending timer callbacks */
+            if (timer_has_pending()) {
+                /* Erase current line from screen */
+                int cur_dw = display_width_range(0, cursor);
+                cursor_left_by(cur_dw);
+                int total_dw = display_width_range(0, line_len);
+                for (int j = 0; j < total_dw; j++) uart_putc(' ');
+                for (int j = 0; j < total_dw; j++) uart_putc('\b');
+                /* Erase the "> " prompt too */
+                uart_putc('\b'); uart_putc('\b');
+                uart_putc(' ');  uart_putc(' ');
+                uart_putc('\b'); uart_putc('\b');
+
+                /* Run callbacks (they may print output) */
+                timer_run_pending();
+
+                /* Redraw prompt and current line */
+                uart_puts("> ");
+                for (int j = 0; j < line_len; j++) uart_putc(line_buf[j]);
+                /* Move cursor back to position */
+                int tail_dw = display_width_range(cursor, line_len);
+                cursor_left_by(tail_dw);
+            }
+            /* Brief pause to avoid busy-spinning */
+            __asm__ volatile("nop; nop; nop; nop");
+            continue;
+        }
+        char c = (char)ic;
 
         if (c == '\r' || c == '\n') {
             /* Enter */

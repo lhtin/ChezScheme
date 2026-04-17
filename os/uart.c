@@ -68,10 +68,9 @@ void uart_putc(char c) {
 }
 
 char uart_getc(void) {
-    /* Wait until data is ready, running pending timer callbacks while waiting */
-    while ((uart_read_reg(UART_LSR) & LSR_DR) == 0) {
-        if (timer_has_pending()) timer_run_pending();
-    }
+    /* Wait until data is ready */
+    while ((uart_read_reg(UART_LSR) & LSR_DR) == 0)
+        ;
     return (char)uart_read_reg(UART_RBR);
 }
 
