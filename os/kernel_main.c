@@ -58,6 +58,7 @@ static void register_help(void) {
         "  (display \"Commands:\\n\")"
         "  (display \"  (help)               show this help\\n\")"
         "  (display \"  (sysinfo)            system information\\n\")"
+        "  (display \"  (clear)              clear screen\\n\")"
         "  (display \"  (set-timer s fn)     one-shot timer (seconds)\\n\")"
         "  (display \"  (set-timer s fn #t)  repeating timer\\n\")"
         "  (display \"  (cancel-timer id)    cancel a timer\\n\")"
@@ -113,6 +114,13 @@ void kernel_main(void) {
         "(define sysinfo"
         "  (let ((f (foreign-procedure \"sysinfo_print\" () void)))"
         "    (lambda () (f) (void))))"
+    );
+
+    /* Register (clear) — clear screen via ANSI escape */
+    eval_scheme_string(
+        "(define (clear)"
+        "  (display \"\\x1b;[2J\\x1b;[H\")"
+        "  (void))"
     );
 
     /* Initialize timer subsystem and register Scheme functions */

@@ -35,6 +35,16 @@ bare-metal on RISC-V 64-bit (M-mode).
 
 ---
 
+### `(clear)`
+
+清除终端屏幕并将光标移到左上角。
+
+```scheme
+> (clear)
+```
+
+---
+
 ### `(sysinfo)`
 
 显示系统状态信息，包括 CPU、内存、引导文件、存储、运行时间和平台信息。
