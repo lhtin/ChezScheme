@@ -5,6 +5,7 @@
  */
 
 #include "uart.h"
+#include "sysinfo.h"
 #include "scheme.h"
 #include <stddef.h>
 
@@ -53,7 +54,9 @@ static void register_help(void) {
         "  (display \"  (map car '((a 1) (b 2))) => (a b)\\n\")"
         "  (display \"  (let ((x 10)) (* x x))   => 100\\n\")"
         "  (display \"\\n\")"
-        "  (display \"System info:\\n\")"
+        "  (display \"Commands:\\n\")"
+        "  (display \"  (help)               show this help\\n\")"
+        "  (display \"  (sysinfo)            system information\\n\")"
         "  (display \"  (machine-type)       machine type\\n\")"
         "  (display \"  (scheme-version)     version string\\n\")"
         "  (display \"  (collect)            run GC\\n\")"
@@ -96,8 +99,16 @@ void kernel_main(void) {
     uart_puts("Building heap...\n");
     Sbuild_heap(NULL, custom_init);
 
-    /* Register (help) after heap is fully built */
+    /* Register custom Scheme functions */
     register_help();
+
+    /* Register (sysinfo) as foreign procedure callable from Scheme */
+    Sforeign_symbol("sysinfo_print", (void *)sysinfo_print);
+    eval_scheme_string(
+        "(define sysinfo"
+        "  (let ((f (foreign-procedure \"sysinfo_print\" () void)))"
+        "    (lambda () (f) (void))))"
+    );
 
     uart_puts("Starting Scheme REPL...\n");
     uart_puts("Type (help) for usage information.\n\n");

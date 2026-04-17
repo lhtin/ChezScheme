@@ -156,12 +156,15 @@ echo ""
 echo "[6] System info"
 
 T6_START=$(date +%s)
-OUTPUT6=$(run_qemu '{ sleep '"$BOOT_WAIT"'; printf "(machine-type)\r"; sleep 2; printf "(string? (scheme-version))\r"; sleep 2; }' 18)
+OUTPUT6=$(run_qemu '{ sleep '"$BOOT_WAIT"'; printf "(machine-type)\r"; sleep 2; printf "(string? (scheme-version))\r"; sleep 2; printf "(sysinfo)\r"; sleep 3; }' 20)
 T6_END=$(date +%s)
 echo "    ($(( T6_END - T6_START ))s)"
 
 check "System: machine-type => rv64le" "$OUTPUT6" "rv64le"
 check "System: scheme-version is string" "$OUTPUT6" "#t"
+check "System: sysinfo shows CPU" "$OUTPUT6" "Architecture:   RV64"
+check "System: sysinfo shows memory" "$OUTPUT6" "Total RAM:"
+check "System: sysinfo shows uptime" "$OUTPUT6" "Uptime:"
 
 # ============================================================
 # TEST 7: Input echo and line editing
