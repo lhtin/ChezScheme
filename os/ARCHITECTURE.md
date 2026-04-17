@@ -4,6 +4,8 @@
 
 ChezSchemeOS 将 Chez Scheme 10.4.0 改造为一个可以直接在 RISC-V 64 位硬件（RV64G）的**机器模式（M-mode）**下运行的操作系统。不依赖任何外部固件（如 OpenSBI）或操作系统（如 Linux），Chez Scheme 的完整 REPL 直接运行在裸机上，通过 QEMU `virt` 机器模拟。
 
+**所有改动完全自包含在 `os/` 目录下，原始 Chez Scheme 源码零修改。**
+
 ```
 +--------------------------------------------------+
 |                  QEMU virt (RV64G)                |
@@ -29,6 +31,7 @@ ChezSchemeOS 将 Chez Scheme 10.4.0 改造为一个可以直接在 RISC-V 64 位
 cd os
 make clean && make    # 编译
 ./run.sh              # 在 QEMU 上运行
+make test             # 运行自动化测试 (23 个用例)
 ```
 
 退出 QEMU: `Ctrl-A` 然后 `X`
@@ -36,41 +39,56 @@ make clean && make    # 编译
 ## 项目结构
 
 ```
-ChezScheme/
-├── c/version.h              ← 修改：添加了 __BAREMETAL_RV64__ 平台块
-├── boot/rv64le/             ← 新增：交叉编译的 rv64le 引导文件
-│   ├── petite.boot          (2.2MB, Petite Chez Scheme 运行时)
-│   ├── scheme.boot          (1.2MB, 完整 Chez Scheme 编译器)
-│   ├── scheme.h             (C API 头文件)
-│   └── equates.h            (内部常量/偏移量)
+ChezScheme/                        ← 原始 Chez Scheme 源码（不修改）
+├── c/                             原始 C 运行时源码
+├── s/                             原始 Scheme 编译器源码
+├── zlib/ lz4/                     压缩库
 │
-└── os/                          ← 新增：裸机 OS 全部代码
-    ├── boot.S               RV64 汇编入口点
-    ├── linker.ld            链接脚本
-    ├── kernel_main.c        C 入口 + Chez Scheme 初始化
-    ├── uart.h / uart.c      NS16550A UART 驱动
-    ├── trap.c               M-mode 异常处理
-    ├── Makefile             构建系统
-    ├── run.sh               QEMU 启动脚本
+└── os/                            ← 裸机 OS（所有改动在此）
+    ├── Makefile                   构建系统
+    ├── run.sh                     QEMU 启动脚本
+    ├── ARCHITECTURE.md            技术文档
     │
-    ├── libgcc_override.c   替换 libgcc 中含 C 扩展指令的函数
+    ├── boot.S                     RV64 汇编入口点（M-mode）
+    ├── linker.ld                  链接脚本（内存布局）
+    ├── kernel_main.c              C 入口 + Chez Scheme 初始化
+    ├── uart.h / uart.c            NS16550A UART 驱动
+    ├── trap.c                     M-mode 异常处理
+    ├── libgcc_override.c          替换含 C 扩展指令的 libgcc 函数
     │
-    ├── chez/                Chez Scheme 平台适配层
-    │   ├── config.h         裸机 config（替代构建系统生成的）
-    │   └── expeditor_stub.c 表达式编辑器桩函数
+    ├── boot/                      交叉编译的 rv64le 引导文件
+    │   ├── petite.boot            (2.2MB, Petite Chez Scheme)
+    │   ├── scheme.boot            (1.2MB, 完整编译器)
+    │   ├── scheme.h               (C API 头文件)
+    │   ├── equates.h              (内部常量/偏移量)
+    │   └── gc-*.inc, heapcheck.inc
     │
-    └── libc/                自制 freestanding C 库
-        ├── memory.c         malloc / free / realloc
-        ├── string.c         memcpy / strlen / strcmp ...
-        ├── printf.c         printf / snprintf 系列
-        ├── stdio.c          FILE / read / write + 行编辑器
-        ├── stdlib.c         abort / exit / qsort / strtol
-        ├── setjmp.S         _setjmp / _longjmp (RV64 汇编)
-        ├── math.c           sin / cos / exp / log / pow ...
-        ├── time.c           clock_gettime (基于 rdtime)
-        ├── signal.c         sigaction 桩函数
-        ├── ... (共 19 个源文件)
-        └── include/         头文件 (共 44 个)
+    ├── chez/                      Chez Scheme 平台适配层
+    │   ├── baremetal_pre.h        通过 -include 注入的平台定义
+    │   ├── config.h               裸机 config（替代构建系统生成的）
+    │   ├── expeditor_stub.c       表达式编辑器桩函数（31 个符号）
+    │   └── stats_wrapper.c        stats.c 包装（禁用 /dev/urandom）
+    │
+    ├── libc/                      自制 freestanding C 库
+    │   ├── memory.c               malloc / free / realloc / calloc
+    │   ├── string.c               memcpy / strlen / strcmp ...
+    │   ├── printf.c               printf / snprintf 系列
+    │   ├── stdio.c                FILE / read / write + UTF-8 行编辑器
+    │   ├── stdlib.c               abort / exit / qsort / strtol
+    │   ├── setjmp.S               _setjmp / _longjmp (RV64 汇编)
+    │   ├── math.c                 sin / cos / exp / log / pow ...
+    │   ├── time.c                 clock_gettime (基于 rdtime)
+    │   ├── signal.c               sigaction 桩函数
+    │   ├── unistd.c               POSIX 桩 (fork/exec/getpid/...)
+    │   ├── fcntl.c                文件描述符控制桩
+    │   ├── ... (共 19 个源文件)
+    │   └── include/               头文件 (共 44 个)
+    │       ├── stdio.h, stdlib.h, string.h, ...
+    │       ├── sys/types.h, sys/stat.h, ...
+    │       └── uuid/uuid.h        UUID 桩
+    │
+    └── tests/
+        └── run_tests.sh           自动化测试（23 个用例，7 组）
 ```
 
 ## 架构详解
@@ -146,23 +164,34 @@ kernel_main()
 
 **`(help)` 函数注入**：在堆构建完成后，通过 Chez 的 C API 调用 `eval(read(open-input-string(...)))` 来定义 Scheme 层面的 `help` 过程。
 
-### 5. Chez Scheme 平台适配 (`c/version.h` 修改)
+### 5. 平台适配（零修改原始源码）
 
-Chez Scheme 的 `version.h` 通过 `#ifdef` 链来选择操作系统。我们在所有 OS 块之前插入了裸机平台块：
+我们**不修改** Chez Scheme 的任何原始文件。平台适配完全通过编译参数和注入头文件实现：
+
+#### `chez/baremetal_pre.h`（通过 `-include` 注入）
+
+编译 Chez C 运行时时，通过 GCC 的 `-include chez/baremetal_pre.h` 参数，在所有源文件之前强制包含此头文件。它的作用：
+
+1. **`#undef __linux__`** 等 OS 宏 — 阻止 `c/version.h` 中的 Linux/macOS/Windows 平台块激活
+2. **定义裸机平台宏** — `USE_MALLOC`、`GETPAGESIZE()`、`IEEE_DOUBLE` 等
 
 ```c
-#if defined(__BAREMETAL_RV64__)
-  #define USE_MALLOC          // 用 malloc 替代 mmap 分配内存
-  #define GETPAGESIZE() 4096  // 固定页面大小
-  #define IEEE_DOUBLE         // IEEE 754 双精度浮点
-  // ... 其他必要定义 ...
-  #undef __linux__            // 阻止 Linux 平台块激活
-#endif
+// baremetal_pre.h（在 version.h 之前执行）
+#undef __linux__           // 阻止 Linux 平台块
+#define __BAREMETAL_RV64__
+#define USE_MALLOC         // 用 malloc 替代 mmap
+#define GETPAGESIZE() 4096
+#define IEEE_DOUBLE
+// ... 其他平台定义
 ```
 
-**为什么用 `USE_MALLOC`**：Chez Scheme 支持三种内存分配策略：`USE_MMAP`（Linux 默认）、`USE_VIRTUAL_ALLOC`（Windows）、`USE_MALLOC`（Emscripten）。裸机没有 mmap，所以使用 malloc 策略，由我们的 `libc/memory.c` 提供实现。
+由于 `-include` 在所有 `#include` 之前生效，当 `c/version.h` 被加载时，`__linux__` 已经被 undef，不会进入 Linux 块。而我们的平台定义已经就位，`version.h` 底部的 "Defaults and derived" 段正常处理。
 
-**`#undef __linux__` 的技巧**：交叉编译器 `riscv64-linux-gnu-gcc` 会自动定义 `__linux__`，这会激活 Linux 平台块（包含 mmap、dlopen 等不可用的功能）。通过在裸机块中 `#undef` 掉它，确保只有我们的定义生效。
+#### `chez/stats_wrapper.c`（包装 stats.c）
+
+原始 `c/version.h` 无条件定义 `USE_DEV_URANDOM_UUID`（在所有平台块之后），这会让 `stats.c` 尝试打开 `/dev/urandom`（裸机不可用）。解决方案：不直接编译 `c/stats.c`，而是通过包装文件先 `#undef USE_DEV_URANDOM_UUID`，再 `#include "stats.c"`，让它走 `uuid_generate()` 路径（由我们的 `uuid/uuid.h` 桩提供）。
+
+**为什么用 `USE_MALLOC`**：Chez Scheme 支持三种内存分配策略：`USE_MMAP`（Linux 默认）、`USE_VIRTUAL_ALLOC`（Windows）、`USE_MALLOC`（Emscripten）。裸机没有 mmap，所以使用 malloc 策略，由我们的 `libc/memory.c` 提供实现。
 
 ### 6. 表达式编辑器桩 (`chez/expeditor_stub.c`)
 
@@ -207,10 +236,10 @@ _heap_end →   └────────────────┘
 
 | 按键 | 功能 |
 |------|------|
-| 左/右箭头 | 移动光标 |
+| 左/右箭头 | 移动光标（UTF-8 字符为单位） |
 | 上/下箭头 | 浏览历史命令（最多 64 条） |
-| Backspace | 删除光标前的字符 |
-| Delete | 删除光标后的字符 |
+| Backspace | 删除光标前的字符（UTF-8 感知） |
+| Delete | 删除光标后的字符（UTF-8 感知） |
 | Home / End | 跳到行首/行尾 |
 | Ctrl-A / Ctrl-E | 跳到行首/行尾 |
 | Ctrl-K | 删除到行尾 |
@@ -288,18 +317,19 @@ static inline uint64_t rdtime(void) {
 
 ```
 kernel.elf
-  ├── boot.o, uart.o, trap.o, kernel_main.o     (裸机骨架)
-  ├── libc/*.o                                    (19 个 freestanding libc)
-  ├── chez_objs/scheme.o, alloc.o, ...           (29 个 Chez C 运行时)
-  ├── chez_objs/expeditor_stub.o                  (平台桩函数)
-  ├── chez_objs/zlib_*.o                          (14 个 zlib 压缩库)
-  ├── chez_objs/lz4_*.o                           (4 个 lz4 压缩库)
-  └── chez_objs/petite_boot.o, scheme_boot.o      (嵌入的 boot 文件)
+  ├── boot.o, uart.o, trap.o, kernel_main.o      (裸机骨架)
+  ├── libgcc_override.o                            (libgcc 函数覆盖)
+  ├── libc/*.o                                     (19 个 freestanding libc)
+  ├── chez_objs/{scheme,alloc,segment,...}.o       (28 个 Chez C 运行时)
+  ├── chez_objs/{expeditor_stub,stats_wrapper}.o   (平台适配桩)
+  ├── chez_objs/zlib_*.o                           (15 个 zlib 压缩库)
+  ├── chez_objs/lz4_*.o                            (4 个 lz4 压缩库)
+  └── chez_objs/{petite_boot,scheme_boot}.o        (嵌入的 boot 文件)
 ```
 
 **两组不同的编译标志**：
 - `CFLAGS`：用于裸机代码（boot/kernel/libc），使用 `-isystem libc/include`
-- `CHEZ_CFLAGS`：用于 Chez C 运行时，额外定义 `-DRISCV64 -D__BAREMETAL_RV64__ -DSCHEME_STATIC`
+- `CHEZ_CFLAGS`：用于 Chez C 运行时，额外使用 `-include chez/baremetal_pre.h` 注入平台定义
 
 **链接**：使用自定义链接脚本 `linker.ld`，链接所有目标文件和 `libgcc.a`（提供软件除法等）。
 
@@ -307,14 +337,15 @@ kernel.elf
 
 ### 9. Boot 文件交叉编译
 
-rv64le 的 boot 文件通过 Chez Scheme 的构建系统从 pb（portable bytecode）交叉编译而来：
+`os/boot/` 下的 rv64le boot 文件通过 Chez Scheme 的构建系统从 pb（portable bytecode）交叉编译而来：
 
 ```bash
 # 在 ChezScheme 根目录执行：
 ./configure -m=rv64le --toolprefix=riscv64-linux-gnu- \
   CC_FOR_BUILD=gcc --as-is --disable-curses --disable-x11 --disable-iconv
 make rv64le.bootquick
-# 输出：boot/rv64le/{petite.boot, scheme.boot, scheme.h, equates.h}
+# 将输出复制到 os/boot/
+cp boot/rv64le/{petite.boot,scheme.boot,scheme.h,equates.h,gc-*.inc,heapcheck.inc} os/boot/
 ```
 
 `scheme.h` 和 `equates.h` 包含了 rv64le 机器类型的类型定义和内部常量偏移量，是编译 Chez C 运行时所必需的。
@@ -334,14 +365,32 @@ make rv64le.bootquick
 | `__bswapsi2` / `__bswapdi2` | 32/64 位字节序交换 |
 | `__extenddftf2` | double → long double 扩展 |
 
+### 11. 自动化测试 (`tests/run_tests.sh`)
+
+23 个测试用例，分为 7 组：
+
+| 分组 | 测试内容 |
+|------|---------|
+| Boot/REPL | 版本显示、提示符、算术、大数、无崩溃 |
+| Display | 字符串输出、多行、换行 |
+| UTF-8 | 中文显示、字符串长度、字符提取 |
+| Error | 除零错误后 REPL 恢复、无崩溃 |
+| GC | 分配 + 回收压力测试 |
+| System | machine-type、scheme-version |
+| Echo | 输入回显、结果正确 |
+
+每组启动一个 QEMU 实例，含耗时统计。
+
 ## 关键设计决策
 
 | 决策 | 原因 |
 |------|------|
+| 所有改动在 `os/` 下 | 不修改原始 Chez Scheme 源码，便于跟踪上游更新 |
+| `-include baremetal_pre.h` | 通过编译器参数注入平台定义，无需修改 `c/version.h` |
+| `stats_wrapper.c` 包装 | 绕过 `USE_DEV_URANDOM_UUID` 而不修改 `c/stats.c` |
 | 使用 `USE_MALLOC` 而非 `USE_MMAP` | 裸机没有 mmap 系统调用，malloc 是最简单的策略 |
 | 非线程构建 (`rv64le` 而非 `trv64le`) | 消除 pthread 依赖，裸机不需要多线程 |
 | 嵌入 boot 文件到 ELF | 避免需要文件系统来加载 boot 文件 |
-| `#undef __linux__` | 阻止交叉编译器的隐式 Linux 定义激活错误的平台代码 |
 | 行缓冲 stdin | 确保按回车后才求值，而非括号匹配后立刻求值 |
 | `ee_init_term` 返回 0 | 告诉 Chez Scheme 不使用 expeditor，回退到基本 I/O |
 | FPU 初始化在 boot.S | RV64G 的 FPU 默认关闭，不初始化会触发非法指令异常 |
@@ -381,13 +430,15 @@ QEMU 虚拟 UART → 终端显示
 
 | 指标 | 数值 |
 |------|------|
-| 新增/修改文件 | 73 个 (72 新增 + 1 修改) |
+| 新增文件 | 87 个（全部在 `os/` 下） |
 | 裸机核心代码 | 7 个文件 (boot.S, linker.ld, kernel_main.c, uart.c, trap.c, uart.h, libgcc_override.c) |
 | Freestanding libc | 19 个源文件 + 44 个头文件 |
-| Chez 平台适配 | 2 个文件 (config.h, expeditor_stub.c) |
-| Chez C 运行时编译 | 29 个文件 |
-| 压缩库编译 | zlib 14 个 + lz4 4 个 |
+| Chez 平台适配 | 4 个文件 (baremetal_pre.h, config.h, expeditor_stub.c, stats_wrapper.c) |
+| 引导文件 | 8 个文件 (petite.boot, scheme.boot, scheme.h, equates.h, gc-*.inc) |
+| 测试 | 23 个自动化用例 |
+| Chez C 运行时编译 | 28 个文件 |
+| 压缩库编译 | zlib 15 个 + lz4 4 个 |
 | 指令集 | 纯 RV64G（无 C 压缩扩展），全部 32 位指令 |
 | 内核大小 | ~5.3MB (含 3.4MB 嵌入 boot 文件) |
 | QEMU 内存 | 256MB |
-| 原始 Chez Scheme 修改 | 仅 `c/version.h` (+40 行) |
+| 原始 Chez Scheme 修改 | **零** |
