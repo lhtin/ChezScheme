@@ -515,12 +515,24 @@ ssize_t read(int fd, void *buf, size_t count) {
     return -1;
 }
 
+/* Timer output buffering — defined in timer.c */
+extern int timer_is_buffering(void);
+extern int timer_buffer_char(char c);
+
 ssize_t write(int fd, const void *buf, size_t count) {
     if (fd == 1 || fd == 2) {
         const char *p = (const char *)buf;
-        for (size_t i = 0; i < count; i++) {
-            if (p[i] == '\n') uart_putc('\r');
-            uart_putc(p[i]);
+        if (timer_is_buffering()) {
+            /* Redirect to per-REPL buffer */
+            for (size_t i = 0; i < count; i++) {
+                if (p[i] == '\n') timer_buffer_char('\r');
+                timer_buffer_char(p[i]);
+            }
+        } else {
+            for (size_t i = 0; i < count; i++) {
+                if (p[i] == '\n') uart_putc('\r');
+                uart_putc(p[i]);
+            }
         }
         return (ssize_t)count;
     }
@@ -598,8 +610,13 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream) {
 
 int fputc(int c, FILE *stream) {
     if (stream->fd == 1 || stream->fd == 2) {
-        if (c == '\n') uart_putc('\r');
-        uart_putc((char)c);
+        if (timer_is_buffering()) {
+            if (c == '\n') timer_buffer_char('\r');
+            timer_buffer_char((char)c);
+        } else {
+            if (c == '\n') uart_putc('\r');
+            uart_putc((char)c);
+        }
         return c;
     }
     return -1;

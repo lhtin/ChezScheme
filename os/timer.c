@@ -15,6 +15,7 @@ typedef struct {
     int active;
     int pending;           /* callback deferred, waiting to run */
     int id;
+    int repl_id;           /* which REPL this timer belongs to */
     unsigned long deadline; /* absolute mtime tick */
     unsigned long interval; /* ticks; 0 = one-shot */
     ptr callback;           /* Scheme procedure (GC-locked) */
@@ -23,6 +24,18 @@ typedef struct {
 static timer_entry_t timers[MAX_TIMERS];
 static int next_id = 1;
 static volatile int timers_pending = 0;
+
+/* Current REPL ID — updated by Scheme layer on switch */
+static int current_repl_id = 0;
+
+/* Per-REPL output buffer for deferred timer output */
+#define MAX_REPL_BUFS 8
+#define REPL_BUF_SIZE 4096
+static char repl_outbuf[MAX_REPL_BUFS][REPL_BUF_SIZE];
+static int  repl_outlen[MAX_REPL_BUFS];
+
+/* Flag: when set, write() routes to buffer instead of UART */
+static int  buffering_repl = -1; /* -1 = not buffering */
 
 /* --- CLINT helpers --- */
 
@@ -62,6 +75,9 @@ void timer_init(void) {
         timers[i].active = 0;
         timers[i].pending = 0;
     }
+    for (int i = 0; i < MAX_REPL_BUFS; i++) {
+        repl_outlen[i] = 0;
+    }
     /* Set mtimecmp to max so no immediate interrupt */
     set_mtimecmp((unsigned long)-1);
 
@@ -92,11 +108,11 @@ static int timer_add(unsigned long seconds, ptr callback, int repeat) {
     timers[slot].active = 1;
     timers[slot].pending = 0;
     timers[slot].id = next_id++;
+    timers[slot].repl_id = current_repl_id;
     timers[slot].deadline = now + ticks;
     timers[slot].interval = repeat ? ticks : 0;
     timers[slot].callback = callback;
 
-    /* Protect callback from GC */
     Slock_object(callback);
 
     reprogram_next();
@@ -143,14 +159,22 @@ void timer_run_pending(void) {
         if (timers[i].active && timers[i].pending) {
             timers[i].pending = 0;
 
-            /* Call the Scheme callback */
-            Scall0(timers[i].callback);
+            if (timers[i].repl_id == current_repl_id) {
+                /* Current REPL: execute callback, output goes to UART directly */
+                Scall0(timers[i].callback);
+            } else {
+                /* Different REPL: redirect output to buffer */
+                int rid = timers[i].repl_id;
+                if (rid >= 0 && rid < MAX_REPL_BUFS) {
+                    buffering_repl = rid;
+                    Scall0(timers[i].callback);
+                    buffering_repl = -1;
+                }
+            }
 
             if (timers[i].interval > 0) {
-                /* Repeating: schedule next */
                 timers[i].deadline = read_mtime() + timers[i].interval;
             } else {
-                /* One-shot: deactivate */
                 Sunlock_object(timers[i].callback);
                 timers[i].active = 0;
             }
@@ -158,6 +182,39 @@ void timer_run_pending(void) {
     }
 
     reprogram_next();
+}
+
+/* Write a character to the repl output buffer (called from write() shim) */
+int timer_buffer_char(char c) {
+    if (buffering_repl < 0 || buffering_repl >= MAX_REPL_BUFS) return 0;
+    int *len = &repl_outlen[buffering_repl];
+    if (*len < REPL_BUF_SIZE - 1) {
+        repl_outbuf[buffering_repl][*len] = c;
+        (*len)++;
+    }
+    return 1; /* consumed */
+}
+
+/* Check if currently buffering output */
+int timer_is_buffering(void) {
+    return buffering_repl >= 0;
+}
+
+/* Set the current REPL ID (called from Scheme on switch) */
+void timer_set_current_repl(int id) {
+    current_repl_id = id;
+}
+
+/* Flush buffered output for the current REPL */
+void timer_flush_repl_buffer(void) {
+    if (current_repl_id < 0 || current_repl_id >= MAX_REPL_BUFS) return;
+    int len = repl_outlen[current_repl_id];
+    if (len > 0) {
+        for (int i = 0; i < len; i++) {
+            uart_putc(repl_outbuf[current_repl_id][i]);
+        }
+        repl_outlen[current_repl_id] = 0;
+    }
 }
 
 /* Print active timers */
@@ -175,6 +232,9 @@ void timer_info_print(void) {
 
         uart_puts("  #");
         print_dec(timers[i].id);
+        uart_puts("  [repl ");
+        print_dec(timers[i].repl_id);
+        uart_puts("]");
 
         if (timers[i].interval > 0) {
             uart_puts("  repeating  interval: ");

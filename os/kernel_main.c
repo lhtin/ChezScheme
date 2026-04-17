@@ -13,6 +13,10 @@
 /* From libc/stdio.c */
 extern void stdio_set_prompt(const char *prompt);
 
+/* From timer.c */
+extern void timer_set_current_repl(int id);
+extern void timer_flush_repl_buffer(void);
+
 /* Boot file data embedded via objcopy (from chez_objs/) */
 extern unsigned char _binary_petite_boot_start[];
 extern unsigned char _binary_petite_boot_end[];
@@ -133,17 +137,22 @@ void kernel_main(void) {
 
     /* Multi-REPL system */
     Sforeign_symbol("stdio_set_prompt", (void *)stdio_set_prompt);
+    Sforeign_symbol("timer_set_current_repl", (void *)timer_set_current_repl);
+    Sforeign_symbol("timer_flush_repl_buffer", (void *)timer_flush_repl_buffer);
     eval_scheme_string(
         "(begin"
-        /* Internal state — stored in top-level so all envs can reference */
         "  (define *repls* (list (interaction-environment)))"
         "  (define *repl-id* 0)"
         ""
         "  (define c-set-prompt (foreign-procedure \"stdio_set_prompt\" (string) void))"
+        "  (define c-set-repl-id (foreign-procedure \"timer_set_current_repl\" (int) void))"
+        "  (define c-flush-repl-buf (foreign-procedure \"timer_flush_repl_buffer\" () void))"
         ""
         "  (define (update-prompt)"
         "    (let ((p (string-append \"[\" (number->string *repl-id*) \"]> \")))"
         "      (c-set-prompt p)"
+        "      (c-set-repl-id *repl-id*)"
+        "      (c-flush-repl-buf)"
         "      (waiter-prompt-string p)))"
         ""
         "  (define (new-repl)"
