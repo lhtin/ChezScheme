@@ -212,6 +212,21 @@ static void emit_utf8_char(int pos) {
         uart_putc(line_buf[pos + i]);
 }
 
+/* Global prompt string — updated by REPL manager */
+static char current_prompt[32] = "> ";
+
+void stdio_set_prompt(const char *prompt) {
+    int i = 0;
+    while (prompt[i] && i < 30) { current_prompt[i] = prompt[i]; i++; }
+    current_prompt[i] = '\0';
+}
+
+static int prompt_display_width(void) {
+    int w = 0;
+    for (int i = 0; current_prompt[i]; i++) w++;
+    return w;
+}
+
 /* Collect a line from UART into line_buf (blocking until Enter) */
 static void collect_line(void) {
     int cursor = 0;    /* byte position in line_buf */
@@ -233,16 +248,17 @@ static void collect_line(void) {
                 int total_dw = display_width_range(0, line_len);
                 for (int j = 0; j < total_dw; j++) uart_putc(' ');
                 for (int j = 0; j < total_dw; j++) uart_putc('\b');
-                /* Erase the "> " prompt too */
-                uart_putc('\b'); uart_putc('\b');
-                uart_putc(' ');  uart_putc(' ');
-                uart_putc('\b'); uart_putc('\b');
+                /* Erase the prompt too */
+                int pdw = prompt_display_width();
+                for (int j = 0; j < pdw; j++) uart_putc('\b');
+                for (int j = 0; j < pdw; j++) uart_putc(' ');
+                for (int j = 0; j < pdw; j++) uart_putc('\b');
 
                 /* Run callbacks (they may print output) */
                 timer_run_pending();
 
                 /* Redraw prompt and current line */
-                uart_puts("> ");
+                uart_puts(current_prompt);
                 for (int j = 0; j < line_len; j++) uart_putc(line_buf[j]);
                 /* Move cursor back to position */
                 int tail_dw = display_width_range(cursor, line_len);
@@ -391,6 +407,33 @@ static void collect_line(void) {
             line_len = 0;
             line_buf[line_len++] = '\n';
             break;
+        } else if (c == 0x0e) {
+            /* Ctrl-N: switch to next REPL */
+            /* Erase current line, inject (next-repl) command */
+            int cur_dw = display_width_range(0, cursor);
+            cursor_left_by(cur_dw);
+            int total_dw = display_width_range(0, line_len);
+            for (int j = 0; j < total_dw; j++) uart_putc(' ');
+            for (int j = 0; j < total_dw; j++) uart_putc('\b');
+            const char *cmd = "(next-repl)";
+            line_len = 0;
+            while (*cmd) { line_buf[line_len++] = *cmd; uart_putc(*cmd); cmd++; }
+            uart_putc('\r'); uart_putc('\n');
+            line_buf[line_len++] = '\n';
+            break;
+        } else if (c == 0x10) {
+            /* Ctrl-P: switch to previous REPL */
+            int cur_dw = display_width_range(0, cursor);
+            cursor_left_by(cur_dw);
+            int total_dw = display_width_range(0, line_len);
+            for (int j = 0; j < total_dw; j++) uart_putc(' ');
+            for (int j = 0; j < total_dw; j++) uart_putc('\b');
+            const char *cmd = "(prev-repl)";
+            line_len = 0;
+            while (*cmd) { line_buf[line_len++] = *cmd; uart_putc(*cmd); cmd++; }
+            uart_putc('\r'); uart_putc('\n');
+            line_buf[line_len++] = '\n';
+            break;
         } else if (c == 0x04) {
             /* Ctrl-D */
             if (line_len == 0) { line_ready = -1; return; }
@@ -452,7 +495,7 @@ ssize_t read(int fd, void *buf, size_t count) {
             if (line_ready < 0) return 0; /* EOF */
             /* If user pressed Enter on an empty line, reprint prompt and retry */
             if (line_len == 1 && line_buf[0] == '\n') {
-                uart_puts("> ");
+                uart_puts(current_prompt);
                 line_pos = 0;
                 line_len = 0;
                 continue;

@@ -44,12 +44,12 @@ LIBC_OBJS   = $(LIBC_C_SRCS:.c=.o) libc/setjmp.o
 
 # --- Chez Scheme C runtime ---
 # Note: gc.c is #included by gc-*.c, not compiled standalone
-# Note: expeditor.c excluded (no curses), stub provided
+# Note: S_unique_id in stats.o is weakened so our override in stats_wrapper.o wins
 CHEZ_C_FILES = scheme alloc segment intern symbol statics \
                gcwrapper gc-011 gc-par gc-ocd gc-oce \
                fasl vfasl compress-io number print \
                prim prim5 schlib schsig io new-io \
-               foreign ffi thread random flushcache clearcache self-exe
+               stats foreign ffi thread random flushcache clearcache self-exe
 CHEZ_OBJS = $(addprefix chez_objs/, $(addsuffix .o, $(CHEZ_C_FILES)))
 
 # --- Chez shim/stub objects ---
@@ -68,7 +68,7 @@ LZ4_OBJS = $(addprefix chez_objs/lz4_, $(addsuffix .o, $(LZ4_C_FILES)))
 BOOT_DATA_OBJS = chez_objs/petite_boot.o chez_objs/scheme_boot.o
 
 # --- All objects ---
-ALL_OBJS = $(BOOT_OBJS) $(LIBC_OBJS) $(CHEZ_OBJS) $(CHEZ_SHIM_OBJS) $(ZLIB_OBJS) $(LZ4_OBJS) $(BOOT_DATA_OBJS)
+ALL_OBJS = $(BOOT_OBJS) $(LIBC_OBJS) $(CHEZ_SHIM_OBJS) $(CHEZ_OBJS) $(ZLIB_OBJS) $(LZ4_OBJS) $(BOOT_DATA_OBJS)
 
 # === Main target ===
 kernel.elf: chez_objs $(ALL_OBJS)
@@ -97,6 +97,11 @@ libc/%.o: libc/%.S
 # --- Chez Scheme C runtime ---
 chez_objs/%.o: $(CHEZ_SRC)/%.c
 	$(CC) $(CHEZ_CFLAGS) -c -o $@ $<
+
+# Special: weaken S_unique_id in stats.o so our override in stats_wrapper.o wins
+chez_objs/stats.o: $(CHEZ_SRC)/stats.c
+	$(CC) $(CHEZ_CFLAGS) -c -o $@ $<
+	$(CROSS)objcopy --weaken-symbol=S_unique_id $@
 
 # --- Chez shim/stub ---
 chez_objs/%.o: chez/%.c
