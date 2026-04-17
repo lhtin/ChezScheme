@@ -213,7 +213,7 @@ static void emit_utf8_char(int pos) {
 }
 
 /* Global prompt string — updated by REPL manager */
-static char current_prompt[32] = "> ";
+static char current_prompt[32] = "[0]> ";
 
 void stdio_set_prompt(const char *prompt) {
     int i = 0;

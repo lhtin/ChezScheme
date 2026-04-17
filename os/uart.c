@@ -68,9 +68,12 @@ void uart_putc(char c) {
 }
 
 char uart_getc(void) {
-    /* Wait until data is ready */
-    while ((uart_read_reg(UART_LSR) & LSR_DR) == 0)
-        ;
+    /* Wait until data is ready, run timer callbacks while waiting.
+     * This path is used by Scheme I/O (not the line editor).
+     * The line editor in stdio.c uses uart_getc_nonblock() instead. */
+    while ((uart_read_reg(UART_LSR) & LSR_DR) == 0) {
+        if (timer_has_pending()) timer_run_pending();
+    }
     return (char)uart_read_reg(UART_RBR);
 }
 
