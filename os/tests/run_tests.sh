@@ -182,6 +182,22 @@ check "Echo: input visible in output" "$OUTPUT7" "(+ 100 200)"
 check "Echo: result correct" "$OUTPUT7" "300"
 
 # ============================================================
+# TEST 8: Timer
+# ============================================================
+echo ""
+echo "[8] Timer"
+
+T8_START=$(date +%s)
+OUTPUT8=$(run_qemu '{ sleep '"$BOOT_WAIT"'; printf "(set-timer 2 (lambda () (display \"TIMER-OK\\n\")))\r"; sleep 1; printf "(timer-info)\r"; sleep 4; }' 20)
+T8_END=$(date +%s)
+echo "    ($(( T8_END - T8_START ))s)"
+
+check "Timer: set-timer returns id" "$OUTPUT8" "1"
+check "Timer: timer-info shows active" "$OUTPUT8" "Active Timers"
+check "Timer: callback fires" "$OUTPUT8" "TIMER-OK"
+check_not "Timer: no crash" "$OUTPUT8" "*** TRAP ***"
+
+# ============================================================
 # Summary
 # ============================================================
 END_TIME=$(date +%s)

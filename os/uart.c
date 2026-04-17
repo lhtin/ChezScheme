@@ -1,6 +1,7 @@
 /* uart.c -- NS16550A UART driver for QEMU virt machine */
 
 #include "uart.h"
+#include "timer.h"
 
 /* NS16550A register offsets */
 #define UART_RBR    0   /* Receive Buffer Register (read) */
@@ -67,9 +68,10 @@ void uart_putc(char c) {
 }
 
 char uart_getc(void) {
-    /* Wait until data is ready */
-    while ((uart_read_reg(UART_LSR) & LSR_DR) == 0)
-        ;
+    /* Wait until data is ready, running pending timer callbacks while waiting */
+    while ((uart_read_reg(UART_LSR) & LSR_DR) == 0) {
+        if (timer_has_pending()) timer_run_pending();
+    }
     return (char)uart_read_reg(UART_RBR);
 }
 

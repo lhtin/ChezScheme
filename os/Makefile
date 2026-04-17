@@ -36,7 +36,7 @@ ASFLAGS  = -march=rv64g -mabi=lp64d -mcmodel=medany -nostdlib -I. -isystem libc/
 LDFLAGS  = -T linker.ld -nostdlib
 
 # --- Boot skeleton ---
-BOOT_OBJS = boot.o uart.o trap.o kernel_main.o libgcc_override.o sysinfo.o
+BOOT_OBJS = boot.o uart.o trap.o kernel_main.o libgcc_override.o sysinfo.o timer.o
 
 # --- Freestanding libc ---
 LIBC_C_SRCS = $(wildcard libc/*.c)

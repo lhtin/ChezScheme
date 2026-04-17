@@ -6,6 +6,7 @@
 
 #include "uart.h"
 #include "sysinfo.h"
+#include "timer.h"
 #include "scheme.h"
 #include <stddef.h>
 
@@ -57,6 +58,10 @@ static void register_help(void) {
         "  (display \"Commands:\\n\")"
         "  (display \"  (help)               show this help\\n\")"
         "  (display \"  (sysinfo)            system information\\n\")"
+        "  (display \"  (set-timer s fn)     one-shot timer (seconds)\\n\")"
+        "  (display \"  (set-timer s fn #t)  repeating timer\\n\")"
+        "  (display \"  (cancel-timer id)    cancel a timer\\n\")"
+        "  (display \"  (timer-info)         show active timers\\n\")"
         "  (display \"  (machine-type)       machine type\\n\")"
         "  (display \"  (scheme-version)     version string\\n\")"
         "  (display \"  (collect)            run GC\\n\")"
@@ -102,11 +107,32 @@ void kernel_main(void) {
     /* Register custom Scheme functions */
     register_help();
 
-    /* Register (sysinfo) as foreign procedure callable from Scheme */
+    /* Register (sysinfo) */
     Sforeign_symbol("sysinfo_print", (void *)sysinfo_print);
     eval_scheme_string(
         "(define sysinfo"
         "  (let ((f (foreign-procedure \"sysinfo_print\" () void)))"
+        "    (lambda () (f) (void))))"
+    );
+
+    /* Initialize timer subsystem and register Scheme functions */
+    timer_init();
+    timer_register_scheme();
+    eval_scheme_string(
+        "(define set-timer"
+        "  (let ((f (foreign-procedure \"scheme_set_timer\" (ptr ptr ptr) ptr)))"
+        "    (case-lambda"
+        "      ((s cb) (f s cb #f))"
+        "      ((s cb repeat) (f s cb repeat)))))"
+    );
+    eval_scheme_string(
+        "(define cancel-timer"
+        "  (let ((f (foreign-procedure \"scheme_cancel_timer\" (ptr) ptr)))"
+        "    (lambda (id) (f id))))"
+    );
+    eval_scheme_string(
+        "(define timer-info"
+        "  (let ((f (foreign-procedure \"scheme_timer_info\" () void)))"
         "    (lambda () (f) (void))))"
     );
 
