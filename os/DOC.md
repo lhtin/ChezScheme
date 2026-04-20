@@ -156,8 +156,8 @@ tick tick tick tick ...
 
 ================ Active Timers ================
 
-  #1  one-shot   remaining: 7s  callback: #<procedure>
-  #2  repeating  interval: 2s   remaining: 1s  callback: #<procedure>
+  #1  one-shot   remaining: 7s  [repl 0]  callback: #<procedure>
+  #2  repeating  interval: 2s   remaining: 1s  [repl 0]  callback: #<procedure>
 
   Slots: 2/16 used
 
@@ -169,8 +169,88 @@ tick tick tick tick ...
 - **one-shot / repeating**：类型
 - **remaining**：距离下次触发的时间
 - **interval**：重复间隔（仅 repeating）
+- **[repl N]**：该定时器所属的 REPL 编号
 - **callback**：回调过程
 - **Slots**：已用/总槽位
+
+---
+
+## 多 REPL 系统
+
+ChezSchemeOS 支持同时运行多个独立的 REPL 会话。每个 REPL 拥有独立的环境副本，提示符格式为 `[N]>` 其中 N 为 REPL 编号。
+
+定时器输出按 REPL 缓冲：非当前 REPL 的定时器输出会被缓存，切换回该 REPL 时自动刷新显示。
+
+### `(new-repl)`
+
+创建新 REPL，复制当前环境到新会话并自动切换过去。
+
+```scheme
+[0]> (new-repl)
+;; 创建 REPL #1，自动切换
+[1]>
+```
+
+### `(switch-repl n)`
+
+切换到指定编号的 REPL。
+
+- **n**：目标 REPL 编号（整数）
+
+```scheme
+[1]> (switch-repl 0)
+[0]>
+```
+
+### `(next-repl)` / `Ctrl-N`
+
+切换到下一个 REPL（循环）。
+
+```scheme
+[0]> (next-repl)
+[1]>
+```
+
+也可以使用快捷键 `Ctrl-N` 达到相同效果。
+
+### `(prev-repl)` / `Ctrl-P`
+
+切换到上一个 REPL（循环）。
+
+```scheme
+[1]> (prev-repl)
+[0]>
+```
+
+也可以使用快捷键 `Ctrl-P` 达到相同效果。
+
+### `(repl-list)`
+
+列出所有 REPL 会话及其状态。
+
+```scheme
+[0]> (repl-list)
+
+============== REPL Sessions ==============
+
+  #0  [active]   env: 12 bindings
+  #1             env: 15 bindings
+  #2             env: 12 bindings
+
+  Total: 3 REPLs
+
+===========================================
+```
+
+### `(close-repl)`
+
+关闭当前 REPL 并自动切换到相邻的 REPL。最后一个 REPL 无法关闭。
+
+```scheme
+[2]> (close-repl)
+;; REPL #2 已关闭，切换到 #1
+[1]>
+```
 
 ---
 

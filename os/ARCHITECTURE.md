@@ -31,7 +31,7 @@ ChezSchemeOS 将 Chez Scheme 10.4.0 改造为一个可以直接在 RISC-V 64 位
 cd os
 make clean && make    # 编译
 ./run.sh              # 在 QEMU 上运行
-make test             # 运行自动化测试 (23 个用例)
+make test             # 运行自动化测试 (30 个用例)
 ```
 
 退出 QEMU: `Ctrl-A` 然后 `X`
@@ -51,10 +51,15 @@ ChezScheme/                        ← 原始 Chez Scheme 源码（不修改）
     │
     ├── boot.S                     RV64 汇编入口点（M-mode）
     ├── linker.ld                  链接脚本（内存布局）
-    ├── kernel_main.c              C 入口 + Chez Scheme 初始化
+    ├── kernel_main.c              C 入口 + 系统信息 + 定时器 + Scheme 初始化
+    ├── sysinfo.c                  硬件/内存信息收集（misa, heap, stack 等）
+    ├── timer.c                    软件定时器（mtime 轮询，多槽位）
     ├── uart.h / uart.c            NS16550A UART 驱动
     ├── trap.c                     M-mode 异常处理
     ├── libgcc_override.c          替换含 C 扩展指令的 libgcc 函数
+    │
+    ├── scheme/                    Scheme 源码（嵌入到 ELF）
+    │   └── init.ss                启动初始化脚本（sysinfo/timer 封装）
     │
     ├── boot/                      交叉编译的 rv64le 引导文件
     │   ├── petite.boot            (2.2MB, Petite Chez Scheme)
@@ -88,7 +93,7 @@ ChezScheme/                        ← 原始 Chez Scheme 源码（不修改）
     │       └── uuid/uuid.h        UUID 桩
     │
     └── tests/
-        └── run_tests.sh           自动化测试（23 个用例，7 组）
+        └── run_tests.sh           自动化测试（30 个用例，8 组）
 ```
 
 ## 架构详解
@@ -150,17 +155,24 @@ _start (boot.S)
 kernel_main()
   │
   ├── uart_init()                    // 初始化 UART
+  ├── sysinfo_register()             // 注册硬件/内存信息查询原语
+  ├── timer_init()                   // 初始化软件定时器子系统
   ├── Sscheme_init(abnormal_exit)    // 初始化 Chez Scheme 运行时
   ├── Sregister_boot_file_bytes(     // 注册嵌入的 petite.boot
   │     "petite.boot", data, size)
   ├── Sregister_boot_file_bytes(     // 注册嵌入的 scheme.boot
   │     "scheme.boot", data, size)
   ├── Sbuild_heap(NULL, custom_init) // 构建 Scheme 堆
+  │     └── custom_init:
+  │           ├── register_foreign_procedures()  // 注册 C 原语
+  │           └── load_scheme_source("init.ss")  // 加载 Scheme 初始化脚本
   ├── register_help()                // 注入 (help) 函数
   └── Sscheme_start(0, NULL)         // 启动 REPL → 永不返回
 ```
 
 **boot 文件嵌入**：通过 `objcopy` 将 `petite.boot` 和 `scheme.boot` 转换为 ELF 目标文件，链接到 `.rodata` 段。这样就不需要文件系统，直接从内存加载。
+
+**Scheme 源码加载**：`init.ss` 同样通过 `objcopy` 嵌入 ELF，在堆构建阶段通过 `load_scheme_source` 以 GC 安全的方式加载——使用 `Slock_object` 保护字符串，调用 `eval(read(open-input-string(...)))`，再 `Sunlock_object` 释放。
 
 **`(help)` 函数注入**：在堆构建完成后，通过 Chez 的 C API 调用 `eval(read(open-input-string(...)))` 来定义 Scheme 层面的 `help` 过程。
 
@@ -324,7 +336,8 @@ kernel.elf
   ├── chez_objs/{expeditor_stub,stats_wrapper}.o   (平台适配桩)
   ├── chez_objs/zlib_*.o                           (15 个 zlib 压缩库)
   ├── chez_objs/lz4_*.o                            (4 个 lz4 压缩库)
-  └── chez_objs/{petite_boot,scheme_boot}.o        (嵌入的 boot 文件)
+  ├── chez_objs/{petite_boot,scheme_boot}.o        (嵌入的 boot 文件)
+  └── init_ss.o                                     (嵌入的 Scheme 初始化脚本)
 ```
 
 **两组不同的编译标志**：
@@ -367,7 +380,7 @@ cp boot/rv64le/{petite.boot,scheme.boot,scheme.h,equates.h,gc-*.inc,heapcheck.in
 
 ### 11. 自动化测试 (`tests/run_tests.sh`)
 
-23 个测试用例，分为 7 组：
+30 个测试用例，分为 8 组：
 
 | 分组 | 测试内容 |
 |------|---------|
@@ -378,6 +391,7 @@ cp boot/rv64le/{petite.boot,scheme.boot,scheme.h,equates.h,gc-*.inc,heapcheck.in
 | GC | 分配 + 回收压力测试 |
 | System | machine-type、scheme-version |
 | Echo | 输入回显、结果正确 |
+| Timer | 定时器创建、触发、取消、列表查询 |
 
 每组启动一个 QEMU 实例，含耗时统计。
 
@@ -397,6 +411,94 @@ cp boot/rv64le/{petite.boot,scheme.boot,scheme.h,equates.h,gc-*.inc,heapcheck.in
 | 纯 RV64G（无 C 扩展） | 确保所有指令为 32 位，简化硬件实现和调试 |
 | libgcc 函数覆盖 | 系统 libgcc 含压缩指令，在纯 RV64G 上会触发非法指令 |
 | UTF-8 感知行编辑 | 支持中文等多字节字符的输入、删除和光标移动 |
+| Scheme优先 | 业务逻辑尽量用 Scheme 实现，C 层只提供原语 |
+| init.ss独立文件 | Scheme 初始化脚本独立维护，不硬编码在 C 字符串中 |
+| GC安全的文件加载 | 使用 Slock_object/Sunlock_object 保护加载期间的字符串对象 |
+
+## C 层原语 API 参考
+
+以下是 C 层通过 `Sforeign_symbol` 注册的所有外部接口，可在 Scheme 中通过 `foreign-procedure` 调用。**新功能应只使用这些原语，不需要修改 C 代码。**
+
+### 系统信息 (`sysinfo.c`)
+
+| C 符号 | Scheme 声明 | 说明 |
+|--------|------------|------|
+| `c_sysinfo_data` | `(foreign-procedure "c_sysinfo_data" () ptr)` | 返回 13 元素 vector |
+
+返回的 vector 字段：
+
+| 索引 | 含义 | 数据来源 |
+|------|------|----------|
+| 0 | misa | CSR `misa`（ISA 扩展位图） |
+| 1 | mvendorid | CSR `mvendorid` |
+| 2 | marchid | CSR `marchid` |
+| 3 | mimpid | CSR `mimpid` |
+| 4 | mhartid | CSR `mhartid`（硬件线程 ID） |
+| 5 | mtime | `rdtime` 计时器（10 MHz） |
+| 6 | heap-start | 链接脚本 `_heap_start` 地址 |
+| 7 | heap-end | 链接脚本 `_heap_end` 地址 |
+| 8 | stack-size | `_stack_top - _stack_bottom`（字节） |
+| 9 | bss-size | `_bss_end - _bss_start`（字节） |
+| 10 | code-size | `_bss_start - 0x80000000`（字节） |
+| 11 | petite-size | petite.boot 大小（字节） |
+| 12 | scheme-size | scheme.boot 大小（字节） |
+
+```scheme
+;; 使用示例
+(define c-sysinfo-data (foreign-procedure "c_sysinfo_data" () ptr))
+(let ((d (c-sysinfo-data)))
+  (display (string-append "heap: "
+    (number->string (vector-ref d 6) 16) " - "
+    (number->string (vector-ref d 7) 16) "\n")))
+```
+
+### 定时器 (`timer.c`)
+
+| C 符号 | Scheme 声明 | 说明 |
+|--------|------------|------|
+| `scheme_set_timer` | `(foreign-procedure "scheme_set_timer" (ptr ptr ptr) ptr)` | 创建定时器。参数：秒数、回调、是否重复。返回 timer-id 或 `#f` |
+| `scheme_cancel_timer` | `(foreign-procedure "scheme_cancel_timer" (ptr) ptr)` | 取消定时器。参数：timer-id |
+| `scheme_timer_list` | `(foreign-procedure "scheme_timer_list" () ptr)` | 返回活跃 timer 列表（见下） |
+| `scheme_timer_max_slots` | `(foreign-procedure "scheme_timer_max_slots" () ptr)` | 返回最大 timer 槽位数（fixnum 16） |
+
+`scheme_timer_list` 返回一个 Scheme list，每个元素为 5 元素 vector：
+
+| 索引 | 含义 | 类型 |
+|------|------|------|
+| 0 | timer-id | fixnum |
+| 1 | repl-id | fixnum |
+| 2 | interval（秒） | integer（0 = 一次性） |
+| 3 | remaining（秒） | integer |
+| 4 | repeat? | boolean |
+
+```scheme
+;; 使用示例
+(define c-timer-list (foreign-procedure "scheme_timer_list" () ptr))
+(for-each
+  (lambda (t)
+    (display (string-append "#" (number->string (vector-ref t 0))
+              " remaining: " (number->string (vector-ref t 3)) "s\n")))
+  (c-timer-list))
+```
+
+### REPL 支持 (`stdio.c` / `timer.c`)
+
+| C 符号 | Scheme 声明 | 说明 |
+|--------|------------|------|
+| `stdio_set_prompt` | `(foreign-procedure "stdio_set_prompt" (string) void)` | 设置行编辑器提示符 |
+| `timer_set_current_repl` | `(foreign-procedure "timer_set_current_repl" (int) void)` | 设置当前 REPL ID（用于 timer 输出缓冲） |
+| `timer_flush_repl_buffer` | `(foreign-procedure "timer_flush_repl_buffer" () void)` | 刷出当前 REPL 的缓冲输出 |
+
+```scheme
+;; 使用示例：切换 REPL 时的标准流程
+(define c-set-prompt (foreign-procedure "stdio_set_prompt" (string) void))
+(define c-set-repl-id (foreign-procedure "timer_set_current_repl" (int) void))
+(define c-flush-repl-buf (foreign-procedure "timer_flush_repl_buffer" () void))
+
+(c-set-prompt "[1]> ")
+(c-set-repl-id 1)
+(c-flush-repl-buf)  ; 刷出 REPL 1 的缓冲 timer 输出
+```
 
 ## 数据流：从键盘输入到 Scheme 求值
 
@@ -430,12 +532,12 @@ QEMU 虚拟 UART → 终端显示
 
 | 指标 | 数值 |
 |------|------|
-| 新增文件 | 87 个（全部在 `os/` 下） |
-| 裸机核心代码 | 7 个文件 (boot.S, linker.ld, kernel_main.c, uart.c, trap.c, uart.h, libgcc_override.c) |
+| 新增文件 | 90 个（全部在 `os/` 下） |
+| 裸机核心代码 | 10 个文件 (boot.S, linker.ld, kernel_main.c, sysinfo.c, timer.c, uart.c, trap.c, uart.h, libgcc_override.c, scheme/init.ss) |
 | Freestanding libc | 19 个源文件 + 44 个头文件 |
 | Chez 平台适配 | 4 个文件 (baremetal_pre.h, config.h, expeditor_stub.c, stats_wrapper.c) |
 | 引导文件 | 8 个文件 (petite.boot, scheme.boot, scheme.h, equates.h, gc-*.inc) |
-| 测试 | 23 个自动化用例 |
+| 测试 | 30 个自动化用例 |
 | Chez C 运行时编译 | 28 个文件 |
 | 压缩库编译 | zlib 15 个 + lz4 4 个 |
 | 指令集 | 纯 RV64G（无 C 压缩扩展），全部 32 位指令 |
