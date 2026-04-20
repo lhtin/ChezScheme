@@ -64,8 +64,8 @@ ZLIB_OBJS = $(addprefix chez_objs/zlib_, $(addsuffix .o, $(ZLIB_C_FILES)))
 LZ4_C_FILES = lz4 lz4frame lz4hc xxhash
 LZ4_OBJS = $(addprefix chez_objs/lz4_, $(addsuffix .o, $(LZ4_C_FILES)))
 
-# --- Embedded boot files ---
-BOOT_DATA_OBJS = chez_objs/petite_boot.o chez_objs/scheme_boot.o
+# --- Embedded boot files and Scheme sources ---
+BOOT_DATA_OBJS = chez_objs/petite_boot.o chez_objs/scheme_boot.o chez_objs/init_ss.o
 
 # --- All objects ---
 ALL_OBJS = $(BOOT_OBJS) $(LIBC_OBJS) $(CHEZ_SHIM_OBJS) $(CHEZ_OBJS) $(ZLIB_OBJS) $(LZ4_OBJS) $(BOOT_DATA_OBJS)
@@ -132,6 +132,15 @@ chez_objs/scheme_boot.o: chez_objs/scheme.boot
 	cd chez_objs && $(OBJCOPY) -I binary -O elf64-littleriscv -B riscv \
 	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
 	  scheme.boot scheme_boot.o
+
+# --- Embed Scheme init source ---
+chez_objs/init.ss: scheme/init.ss
+	cp $< $@
+
+chez_objs/init_ss.o: chez_objs/init.ss
+	cd chez_objs && $(OBJCOPY) -I binary -O elf64-littleriscv -B riscv \
+	  --rename-section .data=.rodata,alloc,load,readonly,data,contents \
+	  init.ss init_ss.o
 
 # === Utility targets ===
 clean:
