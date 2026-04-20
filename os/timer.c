@@ -58,16 +58,6 @@ static void reprogram_next(void) {
     set_mtimecmp(nearest);
 }
 
-/* --- Print helpers --- */
-
-static void print_dec(unsigned long val) {
-    char buf[24];
-    int i = 0;
-    if (val == 0) { uart_putc('0'); return; }
-    while (val > 0) { buf[i++] = '0' + (val % 10); val /= 10; }
-    while (i > 0) uart_putc(buf[--i]);
-}
-
 /* --- Core API --- */
 
 void timer_init(void) {
@@ -217,67 +207,6 @@ void timer_flush_repl_buffer(void) {
     }
 }
 
-/* Print active timers */
-void timer_info_print(void) {
-    unsigned long now = read_mtime();
-    int count = 0;
-
-    uart_puts("\n");
-    uart_puts("================ Active Timers ================\n");
-    uart_puts("\n");
-
-    for (int i = 0; i < MAX_TIMERS; i++) {
-        if (!timers[i].active) continue;
-        count++;
-
-        uart_puts("  #");
-        print_dec(timers[i].id);
-        uart_puts("  [repl ");
-        print_dec(timers[i].repl_id);
-        uart_puts("]");
-
-        if (timers[i].interval > 0) {
-            uart_puts("  repeating  interval: ");
-            print_dec(timers[i].interval / TIMER_FREQ);
-            uart_puts("s");
-        } else {
-            uart_puts("  one-shot ");
-        }
-
-        if (timers[i].deadline > now) {
-            unsigned long remaining = (timers[i].deadline - now) / TIMER_FREQ;
-            uart_puts("  remaining: ");
-            print_dec(remaining);
-            uart_puts("s");
-        } else {
-            uart_puts("  (pending)");
-        }
-
-        uart_puts("  callback: ");
-        /* Print Scheme object representation */
-        if (Sprocedurep(timers[i].callback)) {
-            uart_puts("#<procedure>");
-        } else {
-            uart_puts("#<object>");
-        }
-        uart_putc('\n');
-    }
-
-    if (count == 0) {
-        uart_puts("  (no active timers)\n");
-    }
-
-    uart_puts("\n");
-    uart_puts("  Slots: ");
-    print_dec(count);
-    uart_puts("/");
-    print_dec(MAX_TIMERS);
-    uart_puts(" used\n");
-
-    uart_puts("\n");
-    uart_puts("===============================================\n");
-}
-
 /* --- Scheme foreign functions --- */
 
 /* (set-timer seconds callback) or (set-timer seconds callback #t) */
@@ -293,10 +222,7 @@ static ptr scheme_set_timer(ptr s_seconds, ptr s_callback, ptr s_repeat) {
     int repeat = (s_repeat != Sfalse);
     int id = timer_add(seconds, s_callback, repeat);
 
-    if (id < 0) {
-        uart_puts("Error: no free timer slots\n");
-        return Sfalse;
-    }
+    if (id < 0) return Sfalse;
     return Sfixnum(id);
 }
 
@@ -308,14 +234,41 @@ static ptr scheme_cancel_timer(ptr s_id) {
     return Svoid;
 }
 
-/* (timer-info) */
-static void scheme_timer_info(void) {
-    timer_info_print();
+/* Return a Scheme list of active timer info.
+ * Each element is a vector: #(id repl-id interval-secs remaining-secs repeat?) */
+static ptr scheme_timer_list(void) {
+    unsigned long now = read_mtime();
+    ptr result = Snil;
+
+    /* Build list in reverse, then it naturally comes out in slot order
+     * since we prepend from high to low */
+    for (int i = MAX_TIMERS - 1; i >= 0; i--) {
+        if (!timers[i].active) continue;
+
+        ptr vec = Smake_vector(5, Sfixnum(0));
+        Svector_set(vec, 0, Sfixnum(timers[i].id));
+        Svector_set(vec, 1, Sfixnum(timers[i].repl_id));
+        Svector_set(vec, 2, Sunsigned64(timers[i].interval / TIMER_FREQ));
+        if (timers[i].deadline > now)
+            Svector_set(vec, 3, Sunsigned64((timers[i].deadline - now) / TIMER_FREQ));
+        else
+            Svector_set(vec, 3, Sfixnum(0));
+        Svector_set(vec, 4, timers[i].interval > 0 ? Strue : Sfalse);
+
+        result = Scons(vec, result);
+    }
+    return result;
+}
+
+/* Return MAX_TIMERS */
+static ptr scheme_timer_max_slots(void) {
+    return Sfixnum(MAX_TIMERS);
 }
 
 /* Register all timer-related Scheme functions */
 void timer_register_scheme(void) {
     Sforeign_symbol("scheme_set_timer", (void *)scheme_set_timer);
     Sforeign_symbol("scheme_cancel_timer", (void *)scheme_cancel_timer);
-    Sforeign_symbol("scheme_timer_info", (void *)scheme_timer_info);
+    Sforeign_symbol("scheme_timer_list", (void *)scheme_timer_list);
+    Sforeign_symbol("scheme_timer_max_slots", (void *)scheme_timer_max_slots);
 }

@@ -15,7 +15,6 @@ void timer_init(void);
 void timer_tick(void);              /* Called from ISR */
 void timer_run_pending(void);       /* Run deferred callbacks */
 int  timer_has_pending(void);
-void timer_info_print(void);
 void timer_register_scheme(void);
 
 /* Output buffering for multi-REPL */

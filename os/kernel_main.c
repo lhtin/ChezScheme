@@ -1,7 +1,10 @@
 /* kernel_main.c -- ChezSchemeOS entry point
  *
  * Initializes hardware, loads embedded Chez Scheme boot files,
- * loads init.ss for Scheme-level initialization, and starts the REPL.
+ * registers C primitives, loads init.ss, and starts the REPL.
+ *
+ * This file should rarely need modification. New features should
+ * be implemented in Scheme (os/scheme/init.ss).
  */
 
 #include "uart.h"
@@ -38,21 +41,33 @@ static void custom_init(void) {
      * We leave it empty; definitions are injected after heap is built. */
 }
 
-/* Load an embedded Scheme source file (supports multiple top-level expressions) */
+/* Load an embedded Scheme source file (supports multiple top-level expressions).
+ * We use a Scheme-level load loop to avoid GC issues with C-local ptr variables. */
 static void load_scheme_source(const unsigned char *data, unsigned long size) {
-    ptr ois_proc = Stop_level_value(Sstring_to_symbol("open-input-string"));
-    ptr read_proc = Stop_level_value(Sstring_to_symbol("read"));
+    /* Build the loader as a Scheme expression and eval it once.
+     * This avoids holding Scheme object pointers in C locals across GC points. */
     ptr eval_proc = Stop_level_value(Sstring_to_symbol("eval"));
-    ptr eof_proc = Stop_level_value(Sstring_to_symbol("eof-object?"));
+    ptr read_proc = Stop_level_value(Sstring_to_symbol("read"));
+    ptr ois_proc = Stop_level_value(Sstring_to_symbol("open-input-string"));
 
-    ptr str = Sstring_utf8((const char *)data, (iptr)size);
-    ptr port = Scall1(ois_proc, str);
+    /* Create the source string */
+    ptr src = Sstring_utf8((const char *)data, (iptr)size);
 
-    while (1) {
-        ptr expr = Scall1(read_proc, port);
-        if (Scall1(eof_proc, expr) != Sfalse) break;
-        Scall1(eval_proc, expr);
-    }
+    /* Build and eval: (let ((p (open-input-string src)))
+     *                   (let loop ((e (read p)))
+     *                     (unless (eof-object? e)
+     *                       (eval e)
+     *                       (loop (read p))))) */
+    ptr load_expr = Scall1(read_proc,
+        Scall1(ois_proc,
+            Sstring("(lambda (s)"
+                    "  (let ((p (open-input-string s)))"
+                    "    (let loop ((e (read p)))"
+                    "      (unless (eof-object? e)"
+                    "        (eval e)"
+                    "        (loop (read p))))))")));
+    ptr loader = Scall1(eval_proc, load_expr);
+    Scall1(loader, src);
 }
 
 void kernel_main(void) {
@@ -87,15 +102,15 @@ void kernel_main(void) {
     uart_puts("Building heap...\n");
     Sbuild_heap(NULL, custom_init);
 
-    /* Register C foreign symbols (required before loading init.ss) */
-    Sforeign_symbol("sysinfo_print", (void *)sysinfo_print);
+    /* Register all C primitives for Scheme */
+    sysinfo_register();          /* CSR reads, memory layout */
+    timer_init();                /* Hardware timer setup */
+    timer_register_scheme();     /* Timer foreign functions */
+
+    /* REPL support primitives */
     Sforeign_symbol("stdio_set_prompt", (void *)stdio_set_prompt);
     Sforeign_symbol("timer_set_current_repl", (void *)timer_set_current_repl);
     Sforeign_symbol("timer_flush_repl_buffer", (void *)timer_flush_repl_buffer);
-
-    /* Initialize timer hardware and register timer foreign symbols */
-    timer_init();
-    timer_register_scheme();
 
     /* Load Scheme initialization code */
     uart_puts("Loading init.ss...\n");

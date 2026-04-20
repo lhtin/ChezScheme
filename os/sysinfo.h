@@ -1,12 +1,9 @@
-/* sysinfo.h -- System information for ChezSchemeOS */
+/* sysinfo.h -- System information primitives for ChezSchemeOS */
 
 #ifndef SYSINFO_H
 #define SYSINFO_H
 
-/* Print system information to UART */
-void sysinfo_print(void);
-
-/* Register (sysinfo) Scheme function */
+/* Register sysinfo foreign symbols for Scheme */
 void sysinfo_register(void);
 
 #endif /* SYSINFO_H */
